@@ -37,27 +37,34 @@ export type VoiceProfile = {
   rateMul: number;
 };
 
-/** 20 hand-tuned profiles: 10 female, 10 male, balanced personalities. */
+/**
+ * 20 hand-tuned profiles: 10 female, 10 male.
+ *
+ * Pitch range is deliberately wide (0.45–1.45) so that even on iOS where
+ * only ONE voice (Samantha) exists, each speaker sounds clearly different.
+ * The human ear can reliably distinguish pitch steps of ~0.10+.
+ * Rate variation adds extra character beyond pitch alone.
+ */
 export const VOICE_PROFILES: VoiceProfile[] = [
-  // 1–10 alternating gender, varied personality
-  { gender: "F", personality: "bright",    pitch: 1.30, rateMul: 1.05 },
-  { gender: "M", personality: "serious",   pitch: 0.65, rateMul: 0.92 },
-  { gender: "F", personality: "cheerful",  pitch: 1.38, rateMul: 1.10 },
-  { gender: "M", personality: "calm",      pitch: 0.75, rateMul: 0.92 },
-  { gender: "F", personality: "formal",    pitch: 1.10, rateMul: 0.95 },
-  { gender: "M", personality: "warm",      pitch: 0.82, rateMul: 1.02 },
-  { gender: "F", personality: "youthful",  pitch: 1.32, rateMul: 1.08 },
-  { gender: "M", personality: "mature",    pitch: 0.55, rateMul: 0.88 },
-  { gender: "F", personality: "warm",      pitch: 1.15, rateMul: 0.98 },
-  { gender: "M", personality: "cheerful",  pitch: 0.90, rateMul: 1.08 },
+  // Female speakers (odd indexes 1,3,5,7,9,11,13,15,17,19)
+  { gender: "F", personality: "bright",    pitch: 1.45, rateMul: 1.06 }, // 1
+  { gender: "M", personality: "serious",   pitch: 0.50, rateMul: 0.90 }, // 2
+  { gender: "F", personality: "cheerful",  pitch: 1.35, rateMul: 1.12 }, // 3
+  { gender: "M", personality: "calm",      pitch: 0.62, rateMul: 0.88 }, // 4
+  { gender: "F", personality: "formal",    pitch: 1.18, rateMul: 0.94 }, // 5
+  { gender: "M", personality: "warm",      pitch: 0.74, rateMul: 1.02 }, // 6
+  { gender: "F", personality: "youthful",  pitch: 1.40, rateMul: 1.10 }, // 7
+  { gender: "M", personality: "mature",    pitch: 0.45, rateMul: 0.86 }, // 8
+  { gender: "F", personality: "warm",      pitch: 1.10, rateMul: 0.97 }, // 9
+  { gender: "M", personality: "cheerful",  pitch: 0.88, rateMul: 1.10 }, // 10
 
   // 11–20
-  { gender: "F", personality: "energetic", pitch: 1.42, rateMul: 1.12 },
-  { gender: "M", personality: "gentle",    pitch: 0.88, rateMul: 0.95 },
-  { gender: "F", personality: "gentle",    pitch: 1.05, rateMul: 0.92 },
-  { gender: "M", personality: "bright",    pitch: 0.85, rateMul: 1.05 },
-  { gender: "F", personality: "mature",    pitch: 1.00, rateMul: 0.90 },
-  { gender: "M", personality: "formal",    pitch: 0.70, rateMul: 0.95 },
+  { gender: "F", personality: "energetic", pitch: 1.45, rateMul: 1.14 }, // 11
+  { gender: "M", personality: "gentle",    pitch: 0.80, rateMul: 0.93 }, // 12
+  { gender: "F", personality: "gentle",    pitch: 1.05, rateMul: 0.90 }, // 13
+  { gender: "M", personality: "bright",    pitch: 0.68, rateMul: 1.06 }, // 14
+  { gender: "F", personality: "mature",    pitch: 1.00, rateMul: 0.88 }, // 15
+  { gender: "M", personality: "formal",    pitch: 0.55, rateMul: 0.94 }, // 16
   { gender: "F", personality: "serious",   pitch: 1.08, rateMul: 0.92 },
   { gender: "M", personality: "energetic", pitch: 0.80, rateMul: 1.10 },
   { gender: "F", personality: "calm",      pitch: 1.12, rateMul: 0.90 },

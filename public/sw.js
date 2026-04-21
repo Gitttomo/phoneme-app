@@ -1,15 +1,23 @@
-// Minimal Service Worker to satisfy Chrome's installability criteria.
-// Network-first: simply forwards every request. No offline caching yet.
+// v4 – force update to clear any cached assets
+const CACHE_VERSION = "phoneme-v4";
+
 self.addEventListener("install", (event) => {
+  // Skip waiting immediately so the new SW takes over right away
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  // Delete all old caches
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener("fetch", (event) => {
-  // Let the browser handle the request normally.
-  // Having a fetch handler is required for install prompts in Chrome.
-  event.respondWith(fetch(event.request).catch(() => new Response("", { status: 504 })));
+  // Always network-first — never serve stale JS/CSS
+  event.respondWith(
+    fetch(event.request).catch(() => new Response("", { status: 504 }))
+  );
 });
