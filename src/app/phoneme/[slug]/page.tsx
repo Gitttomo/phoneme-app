@@ -1,12 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { use as usePromise } from "react";
-import { supabase, type Phoneme, type ShareCode, type Word } from "@/lib/supabase";
+import {
+  supabase,
+  type Phoneme,
+  type ReviewStatus,
+  type ShareCode,
+  type Word,
+} from "@/lib/supabase";
 import { getOrCreateShareCode } from "@/lib/shareCode";
+import { cancelSpeech, speakAsSpeaker } from "@/lib/voices";
 
 const SPEAKER_COUNT = 20;
+
+// Review interval in milliseconds
+const REVIEW_INTERVAL_MS: Record<ReviewStatus, number> = {
+  one_more: 1 * 24 * 60 * 60 * 1000, // 1 day
+  good: 3 * 24 * 60 * 60 * 1000,     // 3 days
+  great: 3 * 24 * 60 * 60 * 1000,    // 3 days
+};
 
 type Params = { slug: string };
 
@@ -15,9 +29,10 @@ export default function PhonemePage({ params }: { params: Promise<Params> }) {
   const [phoneme, setPhoneme] = useState<Phoneme | null>(null);
   const [words, setWords] = useState<Word[]>([]);
   const [shareCode, setShareCode] = useState<ShareCode | null>(null);
-  const [isGood, setIsGood] = useState(false);
-  const [speed, setSpeed] = useState(1.0);
+  const [speed, setSpeed] = useState(0.3); // default 0.3x
   const [loading, setLoading] = useState(true);
+  // played[wordId] = Set of speaker indices the user has played
+  const [played, setPlayed] = useState<Record<number, Set<number>>>({});
 
   useEffect(() => {
     (async () => {
@@ -29,26 +44,62 @@ export default function PhonemePage({ params }: { params: Promise<Params> }) {
       if (!ph) { setLoading(false); return; }
       setPhoneme(ph as Phoneme);
 
-      const [{ data: ws }, { data: prog }] = await Promise.all([
-        supabase.from("words").select("*").eq("phoneme_id", (ph as Phoneme).id).order("position"),
-        supabase.from("progress").select("*")
-          .eq("share_code_id", sc.id).eq("phoneme_id", (ph as Phoneme).id).maybeSingle(),
-      ]);
-      setWords((ws ?? []) as Word[]);
-      setIsGood(prog?.is_good ?? false);
+      const { data: ws } = await supabase
+        .from("words").select("*")
+        .eq("phoneme_id", (ph as Phoneme).id).order("position");
+      const wordList = (ws ?? []) as Word[];
+      setWords(wordList);
+
+      // Fetch which speakers have been played for each word
+      const wordIds = wordList.map((w) => w.id);
+      if (wordIds.length > 0) {
+        const { data: plays } = await supabase
+          .from("speaker_plays")
+          .select("word_id, speaker_index")
+          .eq("share_code_id", sc.id)
+          .in("word_id", wordIds);
+        const map: Record<number, Set<number>> = {};
+        wordIds.forEach((id) => { map[id] = new Set(); });
+        (plays ?? []).forEach((p: { word_id: number; speaker_index: number }) => {
+          map[p.word_id]?.add(p.speaker_index);
+        });
+        setPlayed(map);
+      }
+
       setLoading(false);
     })();
+
+    return () => cancelSpeech();
   }, [slug]);
 
-  async function toggleGood() {
+  async function markPlayed(wordId: number, speakerIndex: number) {
+    if (!shareCode) return;
+    setPlayed((prev) => {
+      const next = { ...prev };
+      const set = new Set(next[wordId] ?? []);
+      set.add(speakerIndex);
+      next[wordId] = set;
+      return next;
+    });
+    await supabase.from("speaker_plays").upsert(
+      {
+        share_code_id: shareCode.id,
+        word_id: wordId,
+        speaker_index: speakerIndex,
+      },
+      { onConflict: "share_code_id,word_id,speaker_index" }
+    );
+  }
+
+  async function setStatus(status: ReviewStatus) {
     if (!phoneme || !shareCode) return;
-    const newVal = !isGood;
-    setIsGood(newVal);
+    const reviewAt = new Date(Date.now() + REVIEW_INTERVAL_MS[status]).toISOString();
     await supabase.from("progress").upsert(
       {
         share_code_id: shareCode.id,
         phoneme_id: phoneme.id,
-        is_good: newVal,
+        status,
+        review_at: reviewAt,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "share_code_id,phoneme_id" }
@@ -56,46 +107,37 @@ export default function PhonemePage({ params }: { params: Promise<Params> }) {
   }
 
   if (loading) {
-    return <main className="min-h-screen flex items-center justify-center text-slate-300">読み込み中...</main>;
+    return <main className="min-h-screen flex items-center justify-center text-stone-500 bg-white">読み込み中...</main>;
   }
   if (!phoneme) {
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center gap-4">
+      <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-white">
         <div>音素が見つかりません</div>
-        <Link href="/" className="text-emerald-400 underline">ホームに戻る</Link>
+        <Link href="/" className="text-purple-600 underline">ホームに戻る</Link>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen max-w-3xl mx-auto px-4 py-6">
+    <main className="min-h-screen max-w-3xl mx-auto px-4 py-6 bg-white text-stone-800">
       <div className="mb-6">
-        <Link href="/" className="text-sm text-slate-400 hover:text-slate-200">← ホーム</Link>
+        <Link href="/" className="text-sm text-stone-500 hover:text-purple-700">← ホーム</Link>
       </div>
 
       <header className="mb-6">
         <div className="flex items-center gap-3 mb-1">
-          <h1 className="text-4xl font-bold">{phoneme.symbol}</h1>
+          <h1 className="text-4xl font-bold text-purple-900">{phoneme.symbol}</h1>
           {phoneme.type_label && (
-            <span className="text-slate-400">{phoneme.type_label}</span>
+            <span className="text-stone-500">{phoneme.type_label}</span>
           )}
-          <button
-            onClick={toggleGood}
-            className={`ml-auto px-4 py-2 rounded-xl font-semibold text-sm transition-colors ${
-              isGood
-                ? "bg-emerald-500 text-slate-900"
-                : "bg-slate-700 text-slate-200 hover:bg-slate-600"
-            }`}
-          >
-            {isGood ? "✓ Good" : "Good にする"}
-          </button>
         </div>
-        <p className="text-slate-400 text-sm">{phoneme.condition}</p>
+        <p className="text-stone-500 text-sm">{phoneme.condition}</p>
       </header>
 
-      <div className="mb-6 p-4 rounded-2xl bg-slate-800/60 border border-slate-700">
+      {/* Speed */}
+      <div className="mb-6 p-4 rounded-2xl bg-purple-50 border border-purple-100">
         <div className="flex items-center gap-3">
-          <label htmlFor="speed" className="text-sm text-slate-400">再生速度</label>
+          <label htmlFor="speed" className="text-sm text-stone-600 whitespace-nowrap">再生速度</label>
           <input
             id="speed"
             type="range"
@@ -104,116 +146,101 @@ export default function PhonemePage({ params }: { params: Promise<Params> }) {
             step="0.1"
             value={speed}
             onChange={(e) => setSpeed(parseFloat(e.target.value))}
-            className="flex-1 accent-emerald-400"
+            className="flex-1 accent-purple-500"
           />
-          <span className="font-mono w-12 text-right">{speed.toFixed(1)}x</span>
+          <span className="font-mono w-12 text-right text-stone-700">{speed.toFixed(1)}x</span>
         </div>
       </div>
 
+      {/* Word blocks */}
       <div className="space-y-6 mb-8">
         {words.map((w) => (
-          <WordBlock key={w.id} phonemeSlug={phoneme.slug} word={w} speed={speed} />
+          <WordBlock
+            key={w.id}
+            word={w}
+            speed={speed}
+            playedSet={played[w.id] ?? new Set()}
+            onPlayed={(idx) => markPlayed(w.id, idx)}
+          />
         ))}
       </div>
 
-      <Recorder />
+      {/* Recorder with 3-stage self-rating */}
+      <Recorder onRate={setStatus} />
     </main>
   );
 }
 
-function WordBlock({ phonemeSlug, word, speed }: { phonemeSlug: string; word: Word; speed: number }) {
+function WordBlock({
+  word,
+  speed,
+  playedSet,
+  onPlayed,
+}: {
+  word: Word;
+  speed: number;
+  playedSet: Set<number>;
+  onPlayed: (speakerIndex: number) => void;
+}) {
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const speakers = Array.from({ length: SPEAKER_COUNT }, (_, i) => i + 1);
 
-  function audioUrl(idx: number) {
-    // Supabase public bucket URL
-    const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    return `${base}/storage/v1/object/public/phoneme-audio/${phonemeSlug}/${word.word}/${idx}.mp3`;
-  }
-
   async function playSpeaker(idx: number) {
-    // fallback to Web Speech API if audio file not found
-    try {
-      const audio = new Audio(audioUrl(idx));
-      audio.playbackRate = speed;
-      audioRef.current?.pause();
-      audioRef.current = audio;
-      setPlayingIdx(idx);
-      audio.onended = () => setPlayingIdx((p) => (p === idx ? null : p));
-      await audio.play();
-    } catch {
-      speakFallback(word.word, speed);
-      setPlayingIdx(null);
-    }
-  }
-
-  async function playAll() {
-    for (const idx of speakers) {
-      await new Promise<void>((resolve) => {
-        const audio = new Audio(audioUrl(idx));
-        audio.playbackRate = speed;
-        audioRef.current?.pause();
-        audioRef.current = audio;
-        setPlayingIdx(idx);
-        const done = () => { setPlayingIdx(null); resolve(); };
-        audio.onended = done;
-        audio.onerror = () => {
-          // fallback to TTS once, then move on
-          speakFallback(word.word, speed, resolve);
-        };
-        audio.play().catch(() => speakFallback(word.word, speed, resolve));
-      });
-    }
+    cancelSpeech();
+    setPlayingIdx(idx);
+    await speakAsSpeaker({
+      text: word.word,
+      speakerIndex: idx,
+      baseRate: speed,
+      onEnd: () => {
+        setPlayingIdx((p) => (p === idx ? null : p));
+        onPlayed(idx);
+      },
+      onError: () => {
+        setPlayingIdx((p) => (p === idx ? null : p));
+      },
+    });
   }
 
   return (
-    <div className="p-5 rounded-2xl bg-slate-800/40 border border-slate-700">
+    <div className="p-5 rounded-2xl bg-white border border-purple-100">
       <div className="flex items-baseline gap-3 mb-4">
-        <div className="text-3xl font-bold">{word.word}</div>
-        <div className="text-slate-400 font-mono">{word.ipa}</div>
-        <button
-          onClick={playAll}
-          className="ml-auto px-3 py-1.5 rounded-lg bg-emerald-500 text-slate-900 text-sm font-semibold hover:bg-emerald-400"
-        >
-          ▶ 全員再生
-        </button>
+        <div className="text-3xl font-bold text-stone-900">{word.word}</div>
+        <div className="text-stone-500 font-mono">{word.ipa}</div>
+        <div className="ml-auto text-xs text-stone-400">
+          {playedSet.size}/{SPEAKER_COUNT}
+        </div>
       </div>
       <div className="grid grid-cols-5 sm:grid-cols-10 gap-2">
-        {speakers.map((idx) => (
-          <button
-            key={idx}
-            onClick={() => playSpeaker(idx)}
-            className={`aspect-square rounded-lg text-sm font-semibold transition-colors ${
-              playingIdx === idx
-                ? "bg-emerald-500 text-slate-900"
-                : "bg-slate-700 hover:bg-slate-600"
-            }`}
-          >
-            {idx}
-          </button>
-        ))}
+        {speakers.map((idx) => {
+          const isPlayed = playedSet.has(idx);
+          const isPlaying = playingIdx === idx;
+          return (
+            <button
+              key={idx}
+              onClick={() => playSpeaker(idx)}
+              className={`aspect-square rounded-lg text-sm font-semibold transition-colors border ${
+                isPlaying
+                  ? "bg-purple-600 text-white border-purple-700 animate-pulse"
+                  : isPlayed
+                  ? "bg-purple-300 text-white border-purple-400"
+                  : "bg-stone-50 text-stone-500 border-stone-200 hover:border-purple-300"
+              }`}
+            >
+              {idx}
+            </button>
+          );
+        })}
       </div>
-      <p className="text-[11px] text-slate-500 mt-2">
-        ※ 音声未アップロード時はブラウザのTTSで代替再生します
-      </p>
     </div>
   );
 }
 
-function speakFallback(text: string, rate: number, onEnd?: () => void) {
-  if (typeof window === "undefined" || !("speechSynthesis" in window)) { onEnd?.(); return; }
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = "en-US";
-  u.rate = rate;
-  u.onend = () => onEnd?.();
-  u.onerror = () => onEnd?.();
-  window.speechSynthesis.speak(u);
-}
-
-function Recorder() {
+function Recorder({ onRate }: { onRate: (status: ReviewStatus) => Promise<void> }) {
   const [recording, setRecording] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [savedStatus, setSavedStatus] = useState<ReviewStatus | null>(null);
+  const [saving, setSaving] = useState<ReviewStatus | null>(null);
   const mediaRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
 
@@ -231,7 +258,8 @@ function Recorder() {
       rec.start();
       mediaRef.current = rec;
       setRecording(true);
-    } catch (e) {
+      setSavedStatus(null);
+    } catch {
       alert("マイクへのアクセスが拒否されました");
     }
   }
@@ -241,32 +269,109 @@ function Recorder() {
     setRecording(false);
   }
 
+  async function rate(status: ReviewStatus) {
+    setSaving(status);
+    try {
+      await onRate(status);
+      setSavedStatus(status);
+    } finally {
+      setSaving(null);
+    }
+  }
+
   return (
-    <section className="p-5 rounded-2xl bg-slate-800/60 border border-slate-700">
-      <h3 className="font-semibold mb-3">自分の発音を録音</h3>
+    <section className="p-5 rounded-2xl bg-purple-50 border border-purple-100">
+      <h3 className="font-semibold mb-3 text-purple-900">自分の発音を録音</h3>
       <div className="flex items-center gap-3 mb-3">
         {!recording ? (
           <button
             onClick={start}
-            className="px-4 py-2 rounded-lg bg-rose-500 hover:bg-rose-400 text-white text-sm font-semibold"
+            className="px-4 py-2 rounded-lg bg-purple-500 hover:bg-purple-600 text-white text-sm font-semibold"
           >
             ● 録音開始
           </button>
         ) : (
           <button
             onClick={stop}
-            className="px-4 py-2 rounded-lg bg-slate-200 text-slate-900 text-sm font-semibold animate-pulse"
+            className="px-4 py-2 rounded-lg bg-stone-800 text-white text-sm font-semibold animate-pulse"
           >
             ■ 停止
           </button>
         )}
-        <span className="text-xs text-slate-400">
+        <span className="text-xs text-stone-500">
           {recording ? "録音中..." : "ボタンを押して自分の発音を確認"}
         </span>
       </div>
+
       {audioUrl && (
-        <audio src={audioUrl} controls className="w-full" />
+        <audio src={audioUrl} controls className="w-full mb-4" />
+      )}
+
+      {audioUrl && !recording && (
+        <div className="mt-3">
+          <div className="text-xs text-stone-600 mb-2">自己評価（復習間隔）</div>
+          <div className="grid grid-cols-3 gap-2">
+            <RateButton
+              label="One more"
+              hint="1日後に復習"
+              color="bg-red-500 hover:bg-red-600"
+              active={savedStatus === "one_more"}
+              saving={saving === "one_more"}
+              onClick={() => rate("one_more")}
+            />
+            <RateButton
+              label="Good"
+              hint="3日後に復習"
+              color="bg-orange-400 hover:bg-orange-500"
+              active={savedStatus === "good"}
+              saving={saving === "good"}
+              onClick={() => rate("good")}
+            />
+            <RateButton
+              label="Great"
+              hint="3日後に復習"
+              color="bg-yellow-300 hover:bg-yellow-400 !text-stone-800"
+              active={savedStatus === "great"}
+              saving={saving === "great"}
+              onClick={() => rate("great")}
+            />
+          </div>
+          {savedStatus && (
+            <div className="text-xs text-purple-700 mt-2">
+              ✓ 評価を保存しました
+            </div>
+          )}
+        </div>
       )}
     </section>
+  );
+}
+
+function RateButton({
+  label,
+  hint,
+  color,
+  active,
+  saving,
+  onClick,
+}: {
+  label: string;
+  hint: string;
+  color: string;
+  active: boolean;
+  saving: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={saving}
+      className={`rounded-xl p-3 text-white font-semibold transition-transform ${color} ${
+        active ? "ring-4 ring-purple-300 scale-[1.02]" : ""
+      } ${saving ? "opacity-60" : ""}`}
+    >
+      <div className="text-sm">{label}</div>
+      <div className="text-[10px] opacity-90 font-normal mt-0.5">{hint}</div>
+    </button>
   );
 }
