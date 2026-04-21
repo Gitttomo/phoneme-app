@@ -2,14 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   supabase,
   type Phoneme,
   type Progress,
   type ReviewStatus,
-  type ShareCode,
 } from "@/lib/supabase";
-import { getOrCreateShareCode } from "@/lib/shareCode";
+import { signOut, useAuth } from "@/lib/auth";
 
 type PhonemeRow = Phoneme & {
   status: ReviewStatus | null;
@@ -23,18 +23,22 @@ const STATUS_COLORS: Record<ReviewStatus, { bg: string; text: string; label: str
 };
 
 export default function HomePage() {
+  const user = useAuth();
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [shareCode, setShareCode] = useState<ShareCode | null>(null);
   const [phonemes, setPhonemes] = useState<PhonemeRow[]>([]);
 
+  // Route guard
   useEffect(() => {
-    (async () => {
-      const sc = await getOrCreateShareCode();
-      setShareCode(sc);
+    if (user === null) router.replace("/login");
+  }, [user, router]);
 
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
       const [{ data: phonemesData }, { data: progressData }] = await Promise.all([
         supabase.from("phonemes").select("*").order("sort_order"),
-        supabase.from("progress").select("*").eq("share_code_id", sc.id),
+        supabase.from("progress").select("*").eq("user_id", user.id),
       ]);
 
       const progMap = new Map<number, Progress>();
@@ -51,7 +55,7 @@ export default function HomePage() {
       setPhonemes(withProg);
       setLoading(false);
     })();
-  }, []);
+  }, [user]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, PhonemeRow[]>();
@@ -80,19 +84,29 @@ export default function HomePage() {
       .sort((a, b) => new Date(a.review_at!).getTime() - new Date(b.review_at!).getTime());
   }, [phonemes]);
 
-  if (loading) {
+  if (user === undefined || (user && loading)) {
     return (
       <main className="min-h-screen flex items-center justify-center text-stone-500 bg-white">
         読み込み中...
       </main>
     );
   }
+  if (user === null) return null; // redirecting
 
   return (
     <main className="min-h-screen max-w-3xl mx-auto px-4 py-8 bg-white text-stone-800">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold mb-1 text-purple-900">Phoneme Trainer</h1>
-        <p className="text-stone-500 text-sm">アメリカ英語の母音音素を20人の発音で学ぶ</p>
+      <header className="mb-8 flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold mb-1 text-purple-900">Phoneme Trainer</h1>
+          <p className="text-stone-500 text-sm">アメリカ英語の母音音素を20人の発音で学ぶ</p>
+          <p className="text-[11px] text-stone-400 mt-1">{user.email}</p>
+        </div>
+        <button
+          onClick={() => signOut()}
+          className="text-xs text-stone-500 hover:text-purple-700 px-3 py-1.5 rounded-lg border border-stone-200 hover:border-purple-300"
+        >
+          ログアウト
+        </button>
       </header>
 
       {/* Progress summary */}
@@ -124,10 +138,7 @@ export default function HomePage() {
                   href={`/phoneme/${p.slug}`}
                   className="flex items-center gap-3 p-3 rounded-xl border border-purple-100 hover:bg-purple-50 transition-colors"
                 >
-                  <span
-                    className={`w-3 h-3 rounded-full ${s.bg}`}
-                    aria-label={s.label}
-                  />
+                  <span className={`w-3 h-3 rounded-full ${s.bg}`} />
                   <span className="font-semibold">{p.symbol}</span>
                   {p.type_label && (
                     <span className="text-xs text-stone-500">{p.type_label}</span>

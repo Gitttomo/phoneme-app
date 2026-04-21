@@ -2,20 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { use as usePromise } from "react";
 import {
   supabase,
   type Phoneme,
   type ReviewStatus,
-  type ShareCode,
   type Word,
 } from "@/lib/supabase";
-import { getOrCreateShareCode } from "@/lib/shareCode";
+import { useAuth } from "@/lib/auth";
 import { cancelSpeech, speakAsSpeaker } from "@/lib/voices";
 
 const SPEAKER_COUNT = 20;
 
-// Review interval in milliseconds
 const REVIEW_INTERVAL_MS: Record<ReviewStatus, number> = {
   one_more: 1 * 24 * 60 * 60 * 1000, // 1 day
   good: 3 * 24 * 60 * 60 * 1000,     // 3 days
@@ -26,19 +25,21 @@ type Params = { slug: string };
 
 export default function PhonemePage({ params }: { params: Promise<Params> }) {
   const { slug } = usePromise(params);
+  const user = useAuth();
+  const router = useRouter();
   const [phoneme, setPhoneme] = useState<Phoneme | null>(null);
   const [words, setWords] = useState<Word[]>([]);
-  const [shareCode, setShareCode] = useState<ShareCode | null>(null);
-  const [speed, setSpeed] = useState(0.3); // default 0.3x
+  const [speed, setSpeed] = useState(0.3);
   const [loading, setLoading] = useState(true);
-  // played[wordId] = Set of speaker indices the user has played
   const [played, setPlayed] = useState<Record<number, Set<number>>>({});
 
   useEffect(() => {
-    (async () => {
-      const sc = await getOrCreateShareCode();
-      setShareCode(sc);
+    if (user === null) router.replace("/login");
+  }, [user, router]);
 
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
       const { data: ph } = await supabase
         .from("phonemes").select("*").eq("slug", slug).single();
       if (!ph) { setLoading(false); return; }
@@ -50,13 +51,12 @@ export default function PhonemePage({ params }: { params: Promise<Params> }) {
       const wordList = (ws ?? []) as Word[];
       setWords(wordList);
 
-      // Fetch which speakers have been played for each word
       const wordIds = wordList.map((w) => w.id);
       if (wordIds.length > 0) {
         const { data: plays } = await supabase
           .from("speaker_plays")
           .select("word_id, speaker_index")
-          .eq("share_code_id", sc.id)
+          .eq("user_id", user.id)
           .in("word_id", wordIds);
         const map: Record<number, Set<number>> = {};
         wordIds.forEach((id) => { map[id] = new Set(); });
@@ -70,10 +70,10 @@ export default function PhonemePage({ params }: { params: Promise<Params> }) {
     })();
 
     return () => cancelSpeech();
-  }, [slug]);
+  }, [slug, user]);
 
   async function markPlayed(wordId: number, speakerIndex: number) {
-    if (!shareCode) return;
+    if (!user) return;
     setPlayed((prev) => {
       const next = { ...prev };
       const set = new Set(next[wordId] ?? []);
@@ -83,32 +83,33 @@ export default function PhonemePage({ params }: { params: Promise<Params> }) {
     });
     await supabase.from("speaker_plays").upsert(
       {
-        share_code_id: shareCode.id,
+        user_id: user.id,
         word_id: wordId,
         speaker_index: speakerIndex,
       },
-      { onConflict: "share_code_id,word_id,speaker_index" }
+      { onConflict: "user_id,word_id,speaker_index" }
     );
   }
 
   async function setStatus(status: ReviewStatus) {
-    if (!phoneme || !shareCode) return;
+    if (!phoneme || !user) return;
     const reviewAt = new Date(Date.now() + REVIEW_INTERVAL_MS[status]).toISOString();
     await supabase.from("progress").upsert(
       {
-        share_code_id: shareCode.id,
+        user_id: user.id,
         phoneme_id: phoneme.id,
         status,
         review_at: reviewAt,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "share_code_id,phoneme_id" }
+      { onConflict: "user_id,phoneme_id" }
     );
   }
 
-  if (loading) {
+  if (user === undefined || (user && loading)) {
     return <main className="min-h-screen flex items-center justify-center text-stone-500 bg-white">読み込み中...</main>;
   }
+  if (user === null) return null;
   if (!phoneme) {
     return (
       <main className="min-h-screen flex flex-col items-center justify-center gap-4 bg-white">
@@ -134,7 +135,6 @@ export default function PhonemePage({ params }: { params: Promise<Params> }) {
         <p className="text-stone-500 text-sm">{phoneme.condition}</p>
       </header>
 
-      {/* Speed */}
       <div className="mb-6 p-4 rounded-2xl bg-purple-50 border border-purple-100">
         <div className="flex items-center gap-3">
           <label htmlFor="speed" className="text-sm text-stone-600 whitespace-nowrap">再生速度</label>
@@ -152,7 +152,6 @@ export default function PhonemePage({ params }: { params: Promise<Params> }) {
         </div>
       </div>
 
-      {/* Word blocks */}
       <div className="space-y-6 mb-8">
         {words.map((w) => (
           <WordBlock
@@ -165,7 +164,6 @@ export default function PhonemePage({ params }: { params: Promise<Params> }) {
         ))}
       </div>
 
-      {/* Recorder with 3-stage self-rating */}
       <Recorder onRate={setStatus} />
     </main>
   );
