@@ -115,15 +115,37 @@ function voiceQuality(voice: SpeechSynthesisVoice): number {
   return 50;
 }
 
+/**
+ * Strict American English filter.
+ * Only voices whose lang is en-US (any case, with - or _ separator) OR
+ * whose name explicitly says "US"/"United States"/"American" qualify.
+ * British, Australian, Indian, Irish, Canadian etc. are excluded.
+ */
+function isAmericanEnglish(voice: SpeechSynthesisVoice): boolean {
+  const lang = voice.lang.toLowerCase().replace("_", "-");
+  if (lang === "en-us") return true;
+
+  // Some browsers report just "en" with US in the name
+  const name = voice.name.toLowerCase();
+  if (lang.startsWith("en") && !lang.includes("-")) {
+    return (
+      name.includes("us english") ||
+      name.includes("united states") ||
+      name.includes("american")
+    );
+  }
+  return false;
+}
+
 async function prepareLists() {
   if (cachedEnList) return;
   const all = await loadVoices();
-  const en = all.filter((v) => v.lang.toLowerCase().startsWith("en"));
+  const enUs = all.filter(isAmericanEnglish);
   // Sort by quality descending so best voices are picked first
-  en.sort((a, b) => voiceQuality(b) - voiceQuality(a));
-  cachedEnList = en;
-  cachedFemaleList = en.filter((v) => classify(v) === "F");
-  cachedMaleList = en.filter((v) => classify(v) === "M");
+  enUs.sort((a, b) => voiceQuality(b) - voiceQuality(a));
+  cachedEnList = enUs;
+  cachedFemaleList = enUs.filter((v) => classify(v) === "F");
+  cachedMaleList = enUs.filter((v) => classify(v) === "M");
 }
 
 /**
@@ -173,7 +195,8 @@ export async function speakAsSpeaker(opts: {
   synth.cancel();
 
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = voice?.lang ?? "en-US";
+  // Always force American English, even when falling back
+  u.lang = "en-US";
   if (voice) u.voice = voice;
   u.pitch = Math.max(0, Math.min(2, profile.pitch));
   u.rate = Math.max(0.1, Math.min(10, baseRate * profile.rateMul));
