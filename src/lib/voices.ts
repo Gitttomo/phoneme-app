@@ -1,60 +1,86 @@
 "use client";
 
 /**
- * 20 distinct voice profiles.
+ * 20 distinct voice personas.
  *
- * Design goals:
- *  - Sound as human as possible (Web Speech API has limits, but...)
- *  - Still sound like 20 different people
+ * Each speaker is a combination of:
+ *  - gender intent (F/M)
+ *  - personality (bright, serious, calm, cheerful, etc.)
+ *  - explicit pitch + rate profile
  *
- * Approach:
- *  1. Use ALL available English voices (en-US, en-GB, en-AU, en-IN, en-CA, etc.)
- *     round-robin so each speaker gets a different base voice when possible.
- *  2. Prefer "Google" voices (much more natural than Microsoft default TTS).
- *  3. Keep pitch in a subtle natural range (0.85 – 1.15) to avoid
- *     the "chipmunk" or "robot" artifact that Web Speech produces when
- *     pitch is pushed far from 1.0.
- *  4. Vary rate modestly (0.9 – 1.05).
- *  5. Full volume — reducing volume doesn't make it sound different, just quiet.
+ * Key design decisions:
+ *  - On mobile (especially iOS), the browser usually only provides a few
+ *    English voices (often female-heavy). So we use aggressive pitch
+ *    differences — males get pitch 0.55–0.85 (sounds masculine even on a
+ *    female voice), females get 1.05–1.45.
+ *  - Personality is encoded as pitch × rate combinations so each speaker
+ *    sounds different even if forced to use the same base voice.
+ *  - Volume is kept at 1.0 (reducing it makes voices quieter, not distinct).
  */
 
+export type Personality =
+  | "bright"    // 明るい
+  | "cheerful"  // 陽気
+  | "serious"   // 真面目
+  | "calm"      // 落ち着いた
+  | "energetic" // エネルギッシュ
+  | "warm"      // 親しみやすい
+  | "formal"    // フォーマル
+  | "youthful"  // 若々しい
+  | "mature"    // 大人びた
+  | "gentle";   // 穏やか
+
 export type VoiceProfile = {
-  gender: "F" | "M" | "any";
-  pitch: number;   // 0.85 – 1.15 (subtle, natural)
-  rateMul: number; // 0.9 – 1.05
+  gender: "F" | "M";
+  personality: Personality;
+  pitch: number;
+  rateMul: number;
 };
 
-/** 20 subtle-but-distinct profiles. The big differentiator is the voice itself. */
+/** 20 hand-tuned profiles: 10 female, 10 male, balanced personalities. */
 export const VOICE_PROFILES: VoiceProfile[] = [
-  { gender: "F", pitch: 1.10, rateMul: 0.98 }, // 1
-  { gender: "M", pitch: 0.92, rateMul: 0.95 }, // 2
-  { gender: "F", pitch: 1.05, rateMul: 1.02 }, // 3
-  { gender: "M", pitch: 0.88, rateMul: 1.00 }, // 4
-  { gender: "F", pitch: 1.15, rateMul: 0.95 }, // 5
-  { gender: "M", pitch: 0.95, rateMul: 1.05 }, // 6
-  { gender: "F", pitch: 1.08, rateMul: 1.00 }, // 7
-  { gender: "M", pitch: 0.90, rateMul: 0.98 }, // 8
-  { gender: "F", pitch: 1.12, rateMul: 1.03 }, // 9
-  { gender: "M", pitch: 0.93, rateMul: 0.92 }, // 10
-  { gender: "F", pitch: 1.02, rateMul: 0.97 }, // 11
-  { gender: "M", pitch: 0.87, rateMul: 1.02 }, // 12
-  { gender: "F", pitch: 1.14, rateMul: 0.92 }, // 13
-  { gender: "M", pitch: 0.96, rateMul: 1.00 }, // 14
-  { gender: "F", pitch: 1.00, rateMul: 1.05 }, // 15
-  { gender: "M", pitch: 0.89, rateMul: 0.95 }, // 16
-  { gender: "F", pitch: 1.06, rateMul: 0.90 }, // 17
-  { gender: "M", pitch: 0.94, rateMul: 1.03 }, // 18
-  { gender: "F", pitch: 1.10, rateMul: 0.95 }, // 19
-  { gender: "M", pitch: 0.91, rateMul: 1.00 }, // 20
+  // 1–10 alternating gender, varied personality
+  { gender: "F", personality: "bright",    pitch: 1.30, rateMul: 1.05 },
+  { gender: "M", personality: "serious",   pitch: 0.65, rateMul: 0.92 },
+  { gender: "F", personality: "cheerful",  pitch: 1.38, rateMul: 1.10 },
+  { gender: "M", personality: "calm",      pitch: 0.75, rateMul: 0.92 },
+  { gender: "F", personality: "formal",    pitch: 1.10, rateMul: 0.95 },
+  { gender: "M", personality: "warm",      pitch: 0.82, rateMul: 1.02 },
+  { gender: "F", personality: "youthful",  pitch: 1.32, rateMul: 1.08 },
+  { gender: "M", personality: "mature",    pitch: 0.55, rateMul: 0.88 },
+  { gender: "F", personality: "warm",      pitch: 1.15, rateMul: 0.98 },
+  { gender: "M", personality: "cheerful",  pitch: 0.90, rateMul: 1.08 },
+
+  // 11–20
+  { gender: "F", personality: "energetic", pitch: 1.42, rateMul: 1.12 },
+  { gender: "M", personality: "gentle",    pitch: 0.88, rateMul: 0.95 },
+  { gender: "F", personality: "gentle",    pitch: 1.05, rateMul: 0.92 },
+  { gender: "M", personality: "bright",    pitch: 0.85, rateMul: 1.05 },
+  { gender: "F", personality: "mature",    pitch: 1.00, rateMul: 0.90 },
+  { gender: "M", personality: "formal",    pitch: 0.70, rateMul: 0.95 },
+  { gender: "F", personality: "serious",   pitch: 1.08, rateMul: 0.92 },
+  { gender: "M", personality: "energetic", pitch: 0.80, rateMul: 1.10 },
+  { gender: "F", personality: "calm",      pitch: 1.12, rateMul: 0.90 },
+  { gender: "M", personality: "youthful",  pitch: 0.92, rateMul: 1.05 },
 ];
 
+// ── Voice pool caching ──────────────────────────────────────────────
+
 let cachedVoices: SpeechSynthesisVoice[] | null = null;
-let cachedFemaleList: SpeechSynthesisVoice[] | null = null;
-let cachedMaleList: SpeechSynthesisVoice[] | null = null;
-let cachedEnList: SpeechSynthesisVoice[] | null = null;
+let cachedUsEnglish: SpeechSynthesisVoice[] | null = null;
+let cachedFemalePool: SpeechSynthesisVoice[] | null = null;
+let cachedMalePool: SpeechSynthesisVoice[] | null = null;
+
+/** Fire voice loading as early as possible (called on page mount). */
+export function preloadVoices() {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  // Trigger the voices-changed event
+  window.speechSynthesis.getVoices();
+  void loadVoices();
+}
 
 async function loadVoices(): Promise<SpeechSynthesisVoice[]> {
-  if (cachedVoices) return cachedVoices;
+  if (cachedVoices && cachedVoices.length > 0) return cachedVoices;
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return [];
 
   const synth = window.speechSynthesis;
@@ -74,107 +100,113 @@ async function loadVoices(): Promise<SpeechSynthesisVoice[]> {
   return voices;
 }
 
+// ── Gender heuristics ──────────────────────────────────────────────
+
 const FEMALE_HINTS = [
   "female", "zira", "samantha", "karen", "moira", "tessa", "victoria",
   "susan", "allison", "ava", "serena", "kate", "fiona", "veena",
   "aria", "jenny", "michelle", "emily", "catherine", "libby", "hazel",
   "salli", "joanna", "kendra", "ivy", "kimberly", "amy", "heera",
-  "neerja", "raveena", "sabina", "linda", "heather",
+  "neerja", "raveena", "linda", "heather", "vicki", "princess", "whisper",
 ];
 const MALE_HINTS = [
   "male", "david", "mark", "fred", "alex", "daniel", "tom", "aaron",
-  "oliver", "arthur", "gordon", "ralph", "bruce", "junior", "james",
-  "ryan", "brian", "joey", "matthew", "justin", "rodger", "william", "guy",
-  "george", "thomas", "hemant", "ravi", "lee", "liam",
+  "junior", "james", "ryan", "brian", "joey", "matthew", "justin",
+  "rodger", "william", "guy", "thomas", "hemant", "ravi", "albert",
+  "bruce", "ralph", "reed", "boing", "bubbles", "bahh", "deranged",
 ];
 
 function classify(voice: SpeechSynthesisVoice): "F" | "M" | "any" {
-  const lower = voice.name.toLowerCase();
-  if (FEMALE_HINTS.some((h) => lower.includes(h))) return "F";
-  if (MALE_HINTS.some((h) => lower.includes(h))) return "M";
-  // Heuristic: voices with "Google UK English Female" explicitly, etc.
-  if (lower.includes("female")) return "F";
-  if (lower.includes("male")) return "M";
+  const n = voice.name.toLowerCase();
+  if (FEMALE_HINTS.some((h) => n.includes(h)) || n.includes("female")) return "F";
+  if (MALE_HINTS.some((h) => n.includes(h)) || n.includes(" male")) return "M";
   return "any";
 }
 
-/**
- * Quality score: prefer natural-sounding voices (Google Neural, Apple, etc.)
- * over Microsoft's default robotic TTS.
- */
 function voiceQuality(voice: SpeechSynthesisVoice): number {
   const n = voice.name.toLowerCase();
-  if (n.includes("google")) return 100;           // Google voices are the most natural
-  if (n.includes("natural")) return 90;           // Microsoft "Natural" voices
-  if (n.includes("neural")) return 90;
-  if (n.includes("samantha")) return 80;          // Apple Samantha is natural
-  if (n.includes("karen") || n.includes("moira")) return 75;
-  if (n.includes("daniel") || n.includes("tessa") || n.includes("oliver")) return 75;
-  if (n.includes("alex") || n.includes("victoria")) return 70;
-  if (n.includes("microsoft")) return 30;         // default Windows TTS is robotic
+  if (n.includes("google")) return 100;
+  if (n.includes("natural") || n.includes("neural")) return 90;
+  if (n.includes("samantha")) return 85;
+  if (n.includes("alex")) return 85;
+  if (n.includes("karen")) return 80;
+  if (n.includes("daniel")) return 78;
+  if (n.includes("moira") || n.includes("tessa") || n.includes("oliver")) return 75;
+  if (n.includes("microsoft")) return 30;
   return 50;
 }
 
-/**
- * Strict American English filter.
- * Only voices whose lang is en-US (any case, with - or _ separator) OR
- * whose name explicitly says "US"/"United States"/"American" qualify.
- * British, Australian, Indian, Irish, Canadian etc. are excluded.
- */
 function isAmericanEnglish(voice: SpeechSynthesisVoice): boolean {
   const lang = voice.lang.toLowerCase().replace("_", "-");
   if (lang === "en-us") return true;
-
-  // Some browsers report just "en" with US in the name
-  const name = voice.name.toLowerCase();
+  const n = voice.name.toLowerCase();
   if (lang.startsWith("en") && !lang.includes("-")) {
-    return (
-      name.includes("us english") ||
-      name.includes("united states") ||
-      name.includes("american")
-    );
+    return n.includes("us english") || n.includes("united states") || n.includes("american");
   }
   return false;
 }
 
 async function prepareLists() {
-  if (cachedEnList) return;
+  if (cachedUsEnglish && cachedUsEnglish.length > 0) return;
   const all = await loadVoices();
-  const enUs = all.filter(isAmericanEnglish);
-  // Sort by quality descending so best voices are picked first
-  enUs.sort((a, b) => voiceQuality(b) - voiceQuality(a));
-  cachedEnList = enUs;
-  cachedFemaleList = enUs.filter((v) => classify(v) === "F");
-  cachedMaleList = enUs.filter((v) => classify(v) === "M");
+  const us = all.filter(isAmericanEnglish);
+  us.sort((a, b) => voiceQuality(b) - voiceQuality(a));
+  cachedUsEnglish = us;
+  cachedFemalePool = us.filter((v) => classify(v) === "F");
+  cachedMalePool = us.filter((v) => classify(v) === "M");
 }
 
-/**
- * Deterministically pick a voice for this speakerIndex. The same
- * speakerIndex always gets the same voice across sessions.
- *
- * We spread speakers across the available pool using speakerIndex so each
- * speaker sounds as different from the others as possible.
- */
-async function pickVoiceForSpeaker(
-  speakerIndex: number,
-  profile: VoiceProfile
-): Promise<SpeechSynthesisVoice | null> {
+/** Pick a base voice for a speaker deterministically. */
+async function pickVoice(speakerIndex: number, gender: "F" | "M"): Promise<SpeechSynthesisVoice | null> {
   await prepareLists();
-  const female = cachedFemaleList ?? [];
-  const male = cachedMaleList ?? [];
-  const all = cachedEnList ?? [];
+  const all = cachedUsEnglish ?? [];
+  const genderPool = gender === "F" ? (cachedFemalePool ?? []) : (cachedMalePool ?? []);
 
-  let pool: SpeechSynthesisVoice[];
-  if (profile.gender === "F" && female.length > 0) pool = female;
-  else if (profile.gender === "M" && male.length > 0) pool = male;
-  else pool = all;
-
-  if (pool.length === 0) pool = all;
+  // If we have a gendered pool, use it. Otherwise fall back to any en-US voice.
+  const pool = genderPool.length > 0 ? genderPool : all;
   if (pool.length === 0) return null;
 
-  const idx = (speakerIndex - 1) % pool.length;
+  // Use the speaker index (divided appropriately) to distribute across the pool.
+  // Male speakers get slots 0..9, female speakers get slots 0..9, so we map
+  // the 20-wide speakerIndex down to 0..9 for each gender.
+  const sameGenderSpeakers = VOICE_PROFILES
+    .map((p, i) => ({ p, i }))
+    .filter(({ p }) => p.gender === gender)
+    .map(({ i }) => i + 1);
+  const slot = sameGenderSpeakers.indexOf(speakerIndex);
+  const idx = (slot >= 0 ? slot : speakerIndex - 1) % pool.length;
   return pool[idx];
 }
+
+// ── Warmup ──────────────────────────────────────────────
+
+let warmedUp = false;
+
+/**
+ * On iOS/Android, the FIRST speak call can take 500ms–1.5s to produce sound.
+ * We "warm up" the engine by speaking a silent utterance on the first user
+ * interaction. After that, subsequent calls are immediate.
+ *
+ * This MUST be triggered by a user gesture (click/tap) to satisfy autoplay
+ * policies.
+ */
+export function warmupSpeech() {
+  if (warmedUp) return;
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  try {
+    const u = new SpeechSynthesisUtterance(" ");
+    u.volume = 0;   // silent
+    u.rate = 2.0;   // as fast as possible
+    u.lang = "en-US";
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+    warmedUp = true;
+  } catch {
+    /* ignore */
+  }
+}
+
+// ── Main speak function ──────────────────────────────────────────────
 
 export async function speakAsSpeaker(opts: {
   text: string;
@@ -188,15 +220,16 @@ export async function speakAsSpeaker(opts: {
     onError?.();
     return;
   }
+  warmupSpeech();
+
   const profile = VOICE_PROFILES[(speakerIndex - 1) % VOICE_PROFILES.length];
-  const voice = await pickVoiceForSpeaker(speakerIndex, profile);
+  const voice = await pickVoice(speakerIndex, profile.gender);
 
   const synth = window.speechSynthesis;
   synth.cancel();
 
   const u = new SpeechSynthesisUtterance(text);
-  // Always force American English, even when falling back
-  u.lang = "en-US";
+  u.lang = "en-US"; // force American English even when falling back
   if (voice) u.voice = voice;
   u.pitch = Math.max(0, Math.min(2, profile.pitch));
   u.rate = Math.max(0.1, Math.min(10, baseRate * profile.rateMul));
@@ -212,16 +245,18 @@ export function cancelSpeech() {
   }
 }
 
+/** Look up personality label for a speaker (1..20), optional UI use. */
+export function getPersonality(speakerIndex: number): { gender: "F" | "M"; personality: Personality } {
+  const p = VOICE_PROFILES[(speakerIndex - 1) % VOICE_PROFILES.length];
+  return { gender: p.gender, personality: p.personality };
+}
+
 export async function getVoiceStats() {
   await prepareLists();
   return {
-    totalEnglish: cachedEnList?.length ?? 0,
-    female: cachedFemaleList?.length ?? 0,
-    male: cachedMaleList?.length ?? 0,
-    voices: (cachedEnList ?? []).map((v) => ({
-      name: v.name,
-      lang: v.lang,
-      quality: voiceQuality(v),
-    })),
+    total: cachedUsEnglish?.length ?? 0,
+    female: cachedFemalePool?.length ?? 0,
+    male: cachedMalePool?.length ?? 0,
+    voices: (cachedUsEnglish ?? []).map((v) => ({ name: v.name, lang: v.lang })),
   };
 }

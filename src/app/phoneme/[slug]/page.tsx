@@ -11,7 +11,7 @@ import {
   type Word,
 } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
-import { cancelSpeech, speakAsSpeaker } from "@/lib/voices";
+import { cancelSpeech, preloadVoices, speakAsSpeaker, warmupSpeech } from "@/lib/voices";
 
 const SPEAKER_COUNT = 20;
 
@@ -32,6 +32,11 @@ export default function PhonemePage({ params }: { params: Promise<Params> }) {
   const [speed, setSpeed] = useState(0.3);
   const [loading, setLoading] = useState(true);
   const [played, setPlayed] = useState<Record<number, Set<number>>>({});
+
+  // Preload voices as early as possible so first playback is instant
+  useEffect(() => {
+    preloadVoices();
+  }, []);
 
   useEffect(() => {
     if (user === null) router.replace("/login");
@@ -184,6 +189,7 @@ function WordBlock({
   const speakers = Array.from({ length: SPEAKER_COUNT }, (_, i) => i + 1);
 
   async function playSpeaker(idx: number) {
+    warmupSpeech(); // no-op after first call; reduces latency on mobile
     cancelSpeech();
     setPlayingIdx(idx);
     await speakAsSpeaker({
