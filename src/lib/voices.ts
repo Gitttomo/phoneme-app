@@ -2,39 +2,49 @@
 
 /**
  * 20 distinct voice profiles.
- * Mix of male/female with varied pitch and rate to sound like 20 people.
+ * Each speaker gets a unique combination of:
+ *   - a different base voice (round-robin across all available English voices)
+ *   - a unique pitch value (spread from 0.3 to 1.8)
+ *   - a unique rate multiplier (spread from 0.85 to 1.2)
+ *   - a small volume offset
  * When actual audio files are uploaded to Supabase Storage, this is bypassed.
  */
 export type VoiceProfile = {
-  gender: "F" | "M";
-  pitch: number; // 0.5 – 1.5
-  rateMul: number; // multiplier applied on top of user-selected rate
+  gender: "F" | "M" | "any";
+  pitch: number;     // 0.3 – 1.8
+  rateMul: number;   // 0.85 – 1.2
+  volume: number;    // 0.8 – 1.0
+  voiceGroup: number; // 0..4, used to pick which voice from the pool
 };
 
+/** 20 carefully spread profiles so every speaker sounds different. */
 export const VOICE_PROFILES: VoiceProfile[] = [
-  { gender: "F", pitch: 1.35, rateMul: 1.0 },
-  { gender: "M", pitch: 0.75, rateMul: 0.95 },
-  { gender: "F", pitch: 1.15, rateMul: 1.05 },
-  { gender: "M", pitch: 0.9, rateMul: 1.0 },
-  { gender: "F", pitch: 1.5, rateMul: 1.1 },
-  { gender: "M", pitch: 0.6, rateMul: 1.05 },
-  { gender: "F", pitch: 1.25, rateMul: 0.95 },
-  { gender: "M", pitch: 0.85, rateMul: 0.9 },
-  { gender: "F", pitch: 1.45, rateMul: 1.0 },
-  { gender: "M", pitch: 1.0, rateMul: 1.1 },
-  { gender: "F", pitch: 1.2, rateMul: 0.9 },
-  { gender: "M", pitch: 0.7, rateMul: 1.0 },
-  { gender: "F", pitch: 1.4, rateMul: 1.0 },
-  { gender: "M", pitch: 0.8, rateMul: 1.1 },
-  { gender: "F", pitch: 1.3, rateMul: 0.95 },
-  { gender: "M", pitch: 0.65, rateMul: 1.0 },
-  { gender: "F", pitch: 1.1, rateMul: 1.05 },
-  { gender: "M", pitch: 0.95, rateMul: 0.9 },
-  { gender: "F", pitch: 1.05, rateMul: 1.0 },
-  { gender: "M", pitch: 0.55, rateMul: 1.05 },
+  { gender: "F", pitch: 1.80, rateMul: 0.95, volume: 1.00, voiceGroup: 0 }, // 1: very high female
+  { gender: "M", pitch: 0.30, rateMul: 0.90, volume: 0.95, voiceGroup: 1 }, // 2: very low male
+  { gender: "F", pitch: 1.55, rateMul: 1.10, volume: 0.92, voiceGroup: 2 }, // 3: high female fast
+  { gender: "M", pitch: 0.55, rateMul: 1.15, volume: 1.00, voiceGroup: 3 }, // 4: low male fast
+  { gender: "F", pitch: 1.35, rateMul: 0.88, volume: 0.85, voiceGroup: 0 }, // 5: mid-high female slow quiet
+  { gender: "M", pitch: 0.75, rateMul: 1.00, volume: 0.90, voiceGroup: 1 }, // 6: mid-low male
+  { gender: "F", pitch: 1.65, rateMul: 0.92, volume: 1.00, voiceGroup: 4 }, // 7: high female
+  { gender: "M", pitch: 0.40, rateMul: 1.05, volume: 0.88, voiceGroup: 2 }, // 8: very low male
+  { gender: "F", pitch: 1.20, rateMul: 1.18, volume: 0.95, voiceGroup: 3 }, // 9: mid female fast
+  { gender: "M", pitch: 0.90, rateMul: 0.87, volume: 1.00, voiceGroup: 0 }, // 10: mid male slow
+  { gender: "F", pitch: 1.75, rateMul: 1.00, volume: 0.90, voiceGroup: 1 }, // 11: very high female
+  { gender: "M", pitch: 0.60, rateMul: 0.93, volume: 1.00, voiceGroup: 4 }, // 12: low male
+  { gender: "F", pitch: 1.45, rateMul: 1.12, volume: 0.85, voiceGroup: 2 }, // 13: high-mid female fast
+  { gender: "M", pitch: 0.70, rateMul: 1.08, volume: 0.93, voiceGroup: 3 }, // 14: low-mid male
+  { gender: "F", pitch: 1.10, rateMul: 0.90, volume: 1.00, voiceGroup: 0 }, // 15: mid female slow
+  { gender: "M", pitch: 0.50, rateMul: 1.00, volume: 0.90, voiceGroup: 1 }, // 16: low male
+  { gender: "F", pitch: 1.30, rateMul: 1.05, volume: 0.88, voiceGroup: 4 }, // 17: mid female
+  { gender: "M", pitch: 0.80, rateMul: 0.95, volume: 1.00, voiceGroup: 2 }, // 18: mid male
+  { gender: "F", pitch: 1.00, rateMul: 1.20, volume: 0.92, voiceGroup: 3 }, // 19: mid female very fast
+  { gender: "M", pitch: 0.35, rateMul: 0.98, volume: 1.00, voiceGroup: 0 }, // 20: very low male
 ];
 
 let cachedVoices: SpeechSynthesisVoice[] | null = null;
+let cachedFemaleList: SpeechSynthesisVoice[] | null = null;
+let cachedMaleList: SpeechSynthesisVoice[] | null = null;
+let cachedEnList: SpeechSynthesisVoice[] | null = null;
 
 async function loadVoices(): Promise<SpeechSynthesisVoice[]> {
   if (cachedVoices) return cachedVoices;
@@ -49,7 +59,7 @@ async function loadVoices(): Promise<SpeechSynthesisVoice[]> {
         resolve();
       };
       synth.addEventListener("voiceschanged", handler);
-      setTimeout(resolve, 800);
+      setTimeout(resolve, 1200);
     });
     voices = synth.getVoices();
   }
@@ -57,51 +67,61 @@ async function loadVoices(): Promise<SpeechSynthesisVoice[]> {
   return voices;
 }
 
-function isFemaleName(name: string) {
-  const lower = name.toLowerCase();
-  return (
-    lower.includes("female") ||
-    lower.includes("zira") ||
-    lower.includes("samantha") ||
-    lower.includes("karen") ||
-    lower.includes("moira") ||
-    lower.includes("tessa") ||
-    lower.includes("victoria") ||
-    lower.includes("susan") ||
-    lower.includes("allison") ||
-    lower.includes("ava")
-  );
+const FEMALE_NAME_HINTS = [
+  "female", "zira", "samantha", "karen", "moira", "tessa", "victoria",
+  "susan", "allison", "ava", "serena", "kate", "fiona", "veena",
+  "rishi", "aria", "jenny", "michelle", "emily", "catherine", "libby",
+  "hazel", "salli", "joanna", "kendra", "ivy", "kimberly",
+];
+const MALE_NAME_HINTS = [
+  "male", "david", "mark", "fred", "alex", "daniel", "tom", "aaron",
+  "oliver", "arthur", "gordon", "ralph", "bruce", "junior", "james",
+  "ryan", "brian", "joey", "matthew", "justin", "rodger", "william", "guy",
+];
+
+function classify(voice: SpeechSynthesisVoice): "F" | "M" | "any" {
+  const lower = voice.name.toLowerCase();
+  if (FEMALE_NAME_HINTS.some((h) => lower.includes(h))) return "F";
+  if (MALE_NAME_HINTS.some((h) => lower.includes(h))) return "M";
+  return "any";
 }
 
-function isMaleName(name: string) {
-  const lower = name.toLowerCase();
-  return (
-    lower.includes("male") ||
-    lower.includes("david") ||
-    lower.includes("mark") ||
-    lower.includes("fred") ||
-    lower.includes("alex") ||
-    lower.includes("daniel") ||
-    lower.includes("tom") ||
-    lower.includes("aaron")
-  );
-}
-
-async function pickVoice(gender: "F" | "M"): Promise<SpeechSynthesisVoice | null> {
+async function prepareLists() {
+  if (cachedEnList) return;
   const all = await loadVoices();
-  const english = all.filter((v) => v.lang.toLowerCase().startsWith("en"));
-  if (english.length === 0) return null;
+  const en = all.filter((v) => v.lang.toLowerCase().startsWith("en"));
+  cachedEnList = en;
+  cachedFemaleList = en.filter((v) => classify(v) === "F");
+  cachedMaleList = en.filter((v) => classify(v) === "M");
+}
 
-  const genderMatch = english.filter((v) =>
-    gender === "F" ? isFemaleName(v.name) : isMaleName(v.name)
-  );
-  if (genderMatch.length > 0) {
-    // Prefer en-US > en-GB > other en
-    const us = genderMatch.filter((v) => v.lang.toLowerCase() === "en-us");
-    return (us[0] ?? genderMatch[0]) ?? null;
-  }
-  // Fallback: any English voice
-  return english[0] ?? null;
+/**
+ * Pick a voice for this speaker. Each speakerIndex deterministically maps to
+ * a specific voice (round-robin within the gendered pool), so the same
+ * speaker always sounds the same across sessions.
+ */
+async function pickVoiceForSpeaker(
+  speakerIndex: number,
+  profile: VoiceProfile
+): Promise<SpeechSynthesisVoice | null> {
+  await prepareLists();
+  const female = cachedFemaleList ?? [];
+  const male = cachedMaleList ?? [];
+  const any = cachedEnList ?? [];
+
+  // Try the gendered pool first
+  let pool: SpeechSynthesisVoice[] = [];
+  if (profile.gender === "F" && female.length > 0) pool = female;
+  else if (profile.gender === "M" && male.length > 0) pool = male;
+  else pool = any;
+
+  if (pool.length === 0) pool = any;
+  if (pool.length === 0) return null;
+
+  // Distribute speakers across the pool using speakerIndex (1..20)
+  // so even if pool has only 1 voice, pitch/rate variations make them distinct.
+  const idx = (speakerIndex - 1) % pool.length;
+  return pool[idx];
 }
 
 /**
@@ -121,16 +141,18 @@ export async function speakAsSpeaker(opts: {
     return;
   }
   const profile = VOICE_PROFILES[(speakerIndex - 1) % VOICE_PROFILES.length];
-  const voice = await pickVoice(profile.gender);
+  const voice = await pickVoiceForSpeaker(speakerIndex, profile);
 
   const synth = window.speechSynthesis;
-  synth.cancel(); // stop any previous utterance
+  synth.cancel();
 
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = "en-US";
+  u.lang = voice?.lang ?? "en-US";
   if (voice) u.voice = voice;
+  // Note: browsers clamp pitch to [0, 2] and rate to [0.1, 10].
   u.pitch = Math.max(0, Math.min(2, profile.pitch));
   u.rate = Math.max(0.1, Math.min(10, baseRate * profile.rateMul));
+  u.volume = Math.max(0, Math.min(1, profile.volume));
   u.onend = () => onEnd?.();
   u.onerror = () => onError?.();
   synth.speak(u);
@@ -140,4 +162,16 @@ export function cancelSpeech() {
   if (typeof window !== "undefined" && "speechSynthesis" in window) {
     window.speechSynthesis.cancel();
   }
+}
+
+/**
+ * Diagnostic: returns available voice counts. Useful for debugging.
+ */
+export async function getVoiceStats() {
+  await prepareLists();
+  return {
+    totalEnglish: cachedEnList?.length ?? 0,
+    female: cachedFemaleList?.length ?? 0,
+    male: cachedMaleList?.length ?? 0,
+  };
 }
